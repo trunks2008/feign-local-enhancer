@@ -12,6 +12,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.autoconfigure.http.HttpMessageConverters;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.cloud.netflix.ribbon.SpringClientFactory;
+import org.springframework.cloud.openfeign.EnableFeignClients;
 import org.springframework.cloud.openfeign.ribbon.CachingSpringLoadBalancerFactory;
 import org.springframework.cloud.openfeign.ribbon.LoadBalancerFeignClient;
 import org.springframework.cloud.openfeign.support.ResponseEntityDecoder;
@@ -29,43 +30,56 @@ import org.springframework.http.converter.json.GsonHttpMessageConverter;
 @Slf4j
 @Configuration(proxyBeanMethods = false)
 @EnableConfigurationProperties({LocalFeignProperties.class})
-@Import({LocalFeignClientRegistrar.class})
-@ConditionalOnProperty(value = "feign.local.enable", havingValue = "true")
 public class FeignAutoConfiguration {
-    static {
-        log.info("feign local route started");
+
+    @Import({LocalFeignClientRegistrar.class})
+    @ConditionalOnProperty(value = "feign.local.enable", havingValue = "true")
+    public static class LocalFeignConfiguration{
+        static{
+            log.info("feign local route started");
+        }
+
+        @Bean
+        @Primary
+        public Contract contract(){
+            return new SpringMvcContract();
+        }
+
+        @Bean(name = "defaultClient")
+        public Client defaultClient(){
+            return new Client.Default(null,null);
+        }
+
+        @Bean(name = "ribbonClient")
+        public Client ribbonClient(CachingSpringLoadBalancerFactory cachingFactory,
+                                   SpringClientFactory clientFactory){
+            return new LoadBalancerFeignClient(defaultClient(), cachingFactory,
+                    clientFactory);
+        }
+
+        @Bean
+        public Decoder decoder(){
+            HttpMessageConverter httpMessageConverter=new GsonHttpMessageConverter();
+            ObjectFactory<HttpMessageConverters> messageConverters= () -> new HttpMessageConverters(httpMessageConverter);
+            SpringDecoder springDecoder = new SpringDecoder(messageConverters);
+            return new ResponseEntityDecoder(springDecoder);
+        }
+
+        @Bean
+        public Encoder encoder(){
+            HttpMessageConverter httpMessageConverter=new GsonHttpMessageConverter();
+            ObjectFactory<HttpMessageConverters> messageConverters= () -> new HttpMessageConverters(httpMessageConverter);
+            return new SpringEncoder(messageConverters);
+        }
     }
 
-    @Bean
-    @Primary
-    public Contract contract(){
-        return new SpringMvcContract();
+    @Configuration
+    @ConditionalOnProperty(value = "feign.local.enable", havingValue = "false")
+    @EnableFeignClients(basePackages = "${feign.local.basePackage}")
+    public static class OriginFeiConfigration{
+        static{
+            log.info("origin feign");
+        }
     }
 
-    @Bean(name = "defaultClient")
-    public Client defaultClient(){
-        return new Client.Default(null,null);
-    }
-
-    @Bean(name = "ribbonClient")
-    public Client ribbonClient(CachingSpringLoadBalancerFactory cachingFactory,
-                               SpringClientFactory clientFactory){
-        return new LoadBalancerFeignClient(defaultClient(), cachingFactory,
-                clientFactory);
-    }
-
-    @Bean
-    public Decoder decoder(){
-        HttpMessageConverter httpMessageConverter=new GsonHttpMessageConverter();
-        ObjectFactory<HttpMessageConverters> messageConverters= () -> new HttpMessageConverters(httpMessageConverter);
-        SpringDecoder springDecoder = new SpringDecoder(messageConverters);
-        return new ResponseEntityDecoder(springDecoder);
-    }
-
-    @Bean
-    public Encoder encoder(){
-        HttpMessageConverter httpMessageConverter=new GsonHttpMessageConverter();
-        ObjectFactory<HttpMessageConverters> messageConverters= () -> new HttpMessageConverters(httpMessageConverter);
-        return new SpringEncoder(messageConverters);
-    }
 }
